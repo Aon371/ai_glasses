@@ -151,22 +151,76 @@ class _HomePageState extends State<HomePage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          ElevatedButton(onPressed: _isProcessing ? null : () => _captureAndAnalyze('short'), child: const Text('สั้น')),
-                          ElevatedButton(onPressed: _isProcessing ? null : () => _captureAndAnalyze('detail'), child: const Text('ละเอียด')),
-                          ElevatedButton(onPressed: _isProcessing ? null : () => _captureAndAnalyze('read'), child: const Text('อ่าน')),
+                          ElevatedButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : () async {
+                                    await _tts.speak('กดปุ่ม สั้น');
+                                    await _captureAndAnalyze('short');
+                                  },
+                            child: const Text('สั้น'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : () async {
+                                    await _tts.speak('กดปุ่ม ละเอียด');
+                                    await _captureAndAnalyze('detail');
+                                  },
+                            child: const Text('ละเอียด'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : () async {
+                                    await _tts.speak('กดปุ่ม อ่าน');
+                                    await _captureAndAnalyze('read');
+                                  },
+                            child: const Text('อ่าน'),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          ElevatedButton(onPressed: _isProcessing ? null : () => _captureAndAnalyze('sign'), child: const Text('ป้าย')),
-                          ElevatedButton(onPressed: _isProcessing ? null : () async => await _tts.tellDatetime(), child: const Text('เวลา')),
-                          ElevatedButton(onPressed: _isProcessing ? null : () => _askQuestion(), child: const Text('ถาม')),
+                          ElevatedButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : () async {
+                                    await _tts.speak('กดปุ่ม ป้าย');
+                                    await _captureAndAnalyze('sign');
+                                  },
+                            child: const Text('ป้าย'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : () async {
+                                    await _tts.speak('กดปุ่ม เวลา');
+                                    await _tts.tellDatetime();
+                                  },
+                            child: const Text('เวลา'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : () async {
+                                    await _tts.speak('กดปุ่ม ถาม');
+                                    await _askQuestion();
+                                  },
+                            child: const Text('ถาม'),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      ElevatedButton(onPressed: () => exit(0), child: const Text('ออก')),
+                      ElevatedButton(
+                        onPressed: () async {
+                          await _tts.speak('ปิดแอพ');
+                          exit(0);
+                        },
+                        child: const Text('ออก'),
+                      ),
                     ],
                   ),
                 )
