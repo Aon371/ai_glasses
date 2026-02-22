@@ -15,6 +15,12 @@ class TTSService {
     await _tts.speak(clean);
   }
 
+  Future<void> stop() async {
+    try {
+      await _tts.stop();
+    } catch (_) {}
+  }
+
   Future<void> tellDatetime() async {
     final now = DateTime.now();
     final thaiMonths = [

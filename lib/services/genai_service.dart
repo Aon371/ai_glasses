@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'config.dart';
 
@@ -8,10 +9,13 @@ class GenAIService {
   final String modelName = Config.modelName;
 
   Future<String> analyzeImage(File imageFile, String mode) async {
+    final bytes = await imageFile.readAsBytes();
+    return await analyzeImageBytes(bytes, mode);
+  }
+
+  Future<String> analyzeImageBytes(Uint8List bytes, String mode) async {
     final instruction = _instructionForMode(mode);
     final uri = Uri.parse('https://generativelanguage.googleapis.com/v1beta2/models/$modelName:generateContent?key=$apiKey');
-
-    final bytes = await imageFile.readAsBytes();
     final b64 = base64Encode(bytes);
 
     final body = {
@@ -51,19 +55,25 @@ class GenAIService {
             }
           }
         }
-        return 'ไม่สามารถวิเคราะห์ได้';
+        print('[GenAI] Unexpected success response structure: ${response.body}');
+        return 'ไม่สามารถวิเคราะห์ได้ (รูปแบบผลลัพธ์ไม่คาดคิด)';
       } else {
-        return 'ไม่สามารถวิเคราะห์ได้';
+        print('[GenAI] HTTP ${response.statusCode}: ${response.body}');
+        return 'เกิดข้อผิดพลาดจากเซิร์ฟเวอร์ AI (สถานะ ${response.statusCode})';
       }
-    } catch (e) {
-      return 'เกิดข้อผิดพลาดขณะเชื่อมต่อกับ AI';
+    } catch (e, st) {
+      print('[GenAI] Exception: $e\n$st');
+      return 'เกิดข้อผิดพลาดขณะเชื่อมต่อกับ AI: ${e.toString()}';
     }
   }
 
   Future<String> askQuestion(File imageFile, String question) async {
-    final uri = Uri.parse('https://generativelanguage.googleapis.com/v1beta2/models/$modelName:generateContent?key=$apiKey');
-
     final bytes = await imageFile.readAsBytes();
+    return await askQuestionBytes(bytes, question);
+  }
+
+  Future<String> askQuestionBytes(Uint8List bytes, String question) async {
+    final uri = Uri.parse('https://generativelanguage.googleapis.com/v1beta2/models/$modelName:generateContent?key=$apiKey');
     final b64 = base64Encode(bytes);
 
     final body = {
@@ -103,12 +113,15 @@ class GenAIService {
             }
           }
         }
-        return 'ไม่สามารถตอบได้';
+        print('[GenAI] Unexpected question response structure: ${response.body}');
+        return 'ไม่สามารถตอบได้ (รูปแบบผลลัพธ์ไม่คาดคิด)';
       } else {
-        return 'ไม่สามารถตอบได้';
+        print('[GenAI] HTTP ${response.statusCode}: ${response.body}');
+        return 'เกิดข้อผิดพลาดจากเซิร์ฟเวอร์ AI (สถานะ ${response.statusCode})';
       }
-    } catch (e) {
-      return 'เกิดข้อผิดพลาด';
+    } catch (e, st) {
+      print('[GenAI] Exception: $e\n$st');
+      return 'เกิดข้อผิดพลาดขณะเชื่อมต่อกับ AI: ${e.toString()}';
     }
   }
 

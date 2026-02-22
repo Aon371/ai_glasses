@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +42,8 @@ class _HomePageState extends State<HomePage> {
 
   final _genai = GenAIService();
   final _tts = TTSService();
+  String? _lastHoverLabel;
+  DateTime? _lastHoverAt;
 
   @override
   void initState() {
@@ -70,58 +74,120 @@ class _HomePageState extends State<HomePage> {
     if (_controller == null || _isProcessing) return;
     setState(() => _isProcessing = true);
     try {
+      print('[Action] Capturing image for mode: $mode');
       final xfile = await _controller!.takePicture();
-      final file = File(xfile.path);
-      final result = await _genai.analyzeImage(file, mode);
+      Uint8List bytes;
+      if (kIsWeb) {
+        bytes = await xfile.readAsBytes();
+      } else {
+        final file = File(xfile.path);
+        bytes = await file.readAsBytes();
+      }
+      print('[Action] Sending image to GenAI (mode=$mode)');
+      final result = await _genai.analyzeImageBytes(bytes, mode);
+      print('[Action] Received result for mode=$mode: $result');
+      // allow UI/buttons to be used again while TTS speaks
+      if (mounted) setState(() => _isProcessing = false);
       await _tts.speak(result);
     } catch (e) {
-      await _tts.speak('เกิดข้อผิดพลาด');
-    } finally {
       if (mounted) setState(() => _isProcessing = false);
+      print('[Action] Error during capture/analyze: $e');
+      await _tts.speak('เกิดข้อผิดพลาด');
     }
+  }
+
+  void _handleHover(String label) {
+    final now = DateTime.now();
+    if (_lastHoverLabel == label && _lastHoverAt != null && now.difference(_lastHoverAt!).inSeconds < 2) return;
+    _lastHoverLabel = label;
+    _lastHoverAt = now;
+    _tts.speak(label);
   }
 
   Future<void> _askQuestion() async {
     if (_controller == null || _isProcessing) return;
-    
+
+    setState(() => _isProcessing = true);
+    XFile? xfile;
+    try {
+      xfile = await _controller!.takePicture();
+    } catch (e) {
+      if (mounted) setState(() => _isProcessing = false);
+      await _tts.speak('ไม่สามารถถ่ายภาพสำหรับถามได้');
+      return;
+    }
+
+    Uint8List bytes;
+    if (kIsWeb) {
+      bytes = await xfile.readAsBytes();
+    } else {
+      final imageFile = File(xfile.path);
+      bytes = await imageFile.readAsBytes();
+    }
+    if (mounted) setState(() => _isProcessing = false);
+
     final TextEditingController questionController = TextEditingController();
-    
-    showDialog(
+    final List<String> history = [];
+
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ถามคำถาม'),
-        content: TextField(
-          controller: questionController,
-          decoration: const InputDecoration(hintText: 'พิมพ์คำถาม...'),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              final question = questionController.text.trim();
-              if (question.isEmpty) return;
-              
-              setState(() => _isProcessing = true);
-              try {
-                final xfile = await _controller!.takePicture();
-                final file = File(xfile.path);
-                final result = await _genai.askQuestion(file, question);
-                await _tts.speak(result);
-              } catch (e) {
-                await _tts.speak('เกิดข้อผิดพลาด');
-              } finally {
-                if (mounted) setState(() => _isProcessing = false);
-              }
-            },
-            child: const Text('ถาม'),
-          ),
-        ],
-      ),
+      builder: (context) {
+        return StatefulBuilder(builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: const Text('ถามคำถาม (สนทนา)') ,
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Expanded(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: history.length,
+                      itemBuilder: (context, idx) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Text(history[idx]),
+                      ),
+                    ),
+                  ),
+                  TextField(
+                    controller: questionController,
+                    decoration: const InputDecoration(hintText: 'พิมพ์คำถาม...'),
+                    maxLines: 3,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('ปิด'),
+              ),
+                  TextButton(
+                    onPressed: () async {
+                      final question = questionController.text.trim();
+                      if (question.isEmpty) return;
+                      questionController.clear();
+                      // show a temporary entry
+                      setStateDialog(() => history.add('คุณ: $question'));
+                      try {
+                        if (mounted) setState(() => _isProcessing = true);
+                        final result = await _genai.askQuestionBytes(bytes, question);
+                        setStateDialog(() => history.add('AI: $result'));
+                        if (mounted) setState(() => _isProcessing = false);
+                        await _tts.speak(result);
+                      } catch (e) {
+                        if (mounted) setState(() => _isProcessing = false);
+                        setStateDialog(() => history.add('AI: เกิดข้อผิดพลาด'));
+                        await _tts.speak('เกิดข้อผิดพลาดขณะถาม');
+                      }
+                    },
+                    child: const Text('ถาม'),
+                  ),
+            ],
+          );
+        });
+      },
     );
   }
 
@@ -151,32 +217,41 @@ class _HomePageState extends State<HomePage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          ElevatedButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : () async {
-                                    await _tts.speak('กดปุ่ม สั้น');
-                                    await _captureAndAnalyze('short');
-                                  },
-                            child: const Text('สั้น'),
+                          MouseRegion(
+                            onEnter: (_) => _handleHover('สั้น'),
+                            child: ElevatedButton(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () async {
+                                      print('[UI] Button pressed: short');
+                                      await _captureAndAnalyze('short');
+                                    },
+                              child: const Text('สั้น'),
+                            ),
                           ),
-                          ElevatedButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : () async {
-                                    await _tts.speak('กดปุ่ม ละเอียด');
-                                    await _captureAndAnalyze('detail');
-                                  },
-                            child: const Text('ละเอียด'),
+                          MouseRegion(
+                            onEnter: (_) => _handleHover('ละเอียด'),
+                            child: ElevatedButton(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () async {
+                                      print('[UI] Button pressed: detail');
+                                      await _captureAndAnalyze('detail');
+                                    },
+                              child: const Text('ละเอียด'),
+                            ),
                           ),
-                          ElevatedButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : () async {
-                                    await _tts.speak('กดปุ่ม อ่าน');
-                                    await _captureAndAnalyze('read');
-                                  },
-                            child: const Text('อ่าน'),
+                          MouseRegion(
+                            onEnter: (_) => _handleHover('อ่าน'),
+                            child: ElevatedButton(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () async {
+                                      print('[UI] Button pressed: read');
+                                      await _captureAndAnalyze('read');
+                                    },
+                              child: const Text('อ่าน'),
+                            ),
                           ),
                         ],
                       ),
@@ -184,32 +259,41 @@ class _HomePageState extends State<HomePage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          ElevatedButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : () async {
-                                    await _tts.speak('กดปุ่ม ป้าย');
-                                    await _captureAndAnalyze('sign');
-                                  },
-                            child: const Text('ป้าย'),
+                          MouseRegion(
+                            onEnter: (_) => _handleHover('ป้าย'),
+                            child: ElevatedButton(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () async {
+                                      print('[UI] Button pressed: sign');
+                                      await _captureAndAnalyze('sign');
+                                    },
+                              child: const Text('ป้าย'),
+                            ),
                           ),
-                          ElevatedButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : () async {
-                                    await _tts.speak('กดปุ่ม เวลา');
-                                    await _tts.tellDatetime();
-                                  },
-                            child: const Text('เวลา'),
+                          MouseRegion(
+                            onEnter: (_) => _handleHover('เวลา'),
+                            child: ElevatedButton(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () async {
+                                      print('[UI] Button pressed: datetime');
+                                      await _tts.tellDatetime();
+                                    },
+                              child: const Text('เวลา'),
+                            ),
                           ),
-                          ElevatedButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : () async {
-                                    await _tts.speak('กดปุ่ม ถาม');
-                                    await _askQuestion();
-                                  },
-                            child: const Text('ถาม'),
+                          MouseRegion(
+                            onEnter: (_) => _handleHover('ถาม'),
+                            child: ElevatedButton(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () async {
+                                      print('[UI] Button pressed: ask');
+                                      await _askQuestion();
+                                    },
+                              child: const Text('ถาม'),
+                            ),
                           ),
                         ],
                       ),
